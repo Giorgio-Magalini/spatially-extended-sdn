@@ -20,17 +20,6 @@ def _to_batch(x: Tensor) -> Tensor:
         return x
     raise ValueError(f"Expected 1-D or 2-D input tensor, got shape {tuple(x.shape)}.")
 
-def _apply_batched(fn, x: Tensor) -> Tensor:
-    """
-    Apply a 1-D curve function to each row of a (B, T) tensor.
-
-    Returns a stacked tensor whose shape depends on the output of fn:
-      - scalar per sample  → (B,)
-      - 1-D array per sample → (B, L)
-      - 2-D array per sample → (B, F, L)
-    """
-    return torch.stack([fn(x[i]) for i in range(x.shape[0])])
-
 class EDCLoss(nn.Module):
     def __init__(self, power: float = 2.0, **kwargs) -> None:
         """Normalized MSE between linear-amplitude full-band EDC curves."""
@@ -47,8 +36,10 @@ class EDCLoss(nn.Module):
         """
         pred   = _to_batch(pred)    # (B, T)
         target = _to_batch(target)  # (B, T)
-        edc_pred   = _apply_batched(energy_decay_curve, pred)    # (B, T)
-        edc_target = _apply_batched(energy_decay_curve, target)  # (B, T)
+
+        edc_pred = energy_decay_curve(pred)  # (B, T) — natively batched
+        edc_target = energy_decay_curve(target)  # (B, T)
+
         return lp_error_fn(edc_pred, edc_target, self.power, normalize=True)
 
 
@@ -69,9 +60,10 @@ class MelEDRLogLoss(nn.Module):
         """
         pred   = _to_batch(pred)    # (B, T)
         target = _to_batch(target)  # (B, T)
-        edr_fn = lambda x: mel_energy_decay_relief(x, self.sr, return_db=True)  # noqa: E731
-        edr_pred   = _apply_batched(edr_fn, pred)    # (B, F, L)
-        edr_target = _apply_batched(edr_fn, target)  # (B, F, L)
+
+        edr_pred = mel_energy_decay_relief(pred, self.sr, return_db=True)  # (B, n_mels, L)
+        edr_target = mel_energy_decay_relief(target, self.sr, return_db=True)  # (B, n_mels, L)
+
         return lp_error_fn(edr_pred, edr_target, self.power, normalize=True)
 
 
@@ -93,8 +85,12 @@ class EDPLoss(nn.Module):
         """
         pred   = _to_batch(pred)    # (B, T)
         target = _to_batch(target)  # (B, T)
-        edp_fn = lambda x: echo_density_profile(x, sr=self.sr, win_duration=self.win_duration, differentiable=True) # noqa: E731
-        profile_pred   = _apply_batched(edp_fn, pred)    # (B, L)
-        profile_target = _apply_batched(edp_fn, target)  # (B, L)
+
+        profile_pred = echo_density_profile(
+            pred, sr=self.sr, win_duration=self.win_duration, differentiable=True
+        )  # (B, n_frames) — natively batched
+        profile_target = echo_density_profile(
+            target, sr=self.sr, win_duration=self.win_duration, differentiable=True
+        )  # (B, n_frames)
 
         return lp_error_fn(profile_pred, profile_target, self.power, normalize=False)
