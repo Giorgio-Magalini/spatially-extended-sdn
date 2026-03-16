@@ -88,9 +88,7 @@ def echo_density_profile(h: Tensor, sr: int, win_duration: float = 0.02, differe
 
     # Build sigmoid sharpness schedule
     if isinstance(kappa, tuple):
-        kappa_t = torch.linspace(
-            kappa[0], kappa[1], n_frames, device=h.device
-        ).view(1, n_frames, 1)                             # (1, n_frames, 1)
+        kappa_t = torch.linspace(kappa[0], kappa[1], n_frames, device=h.device).view(1, n_frames, 1) # (1, n_frames, 1)
     else:
         kappa_t = torch.tensor(kappa, device=h.device).view(1, 1, 1)
 
