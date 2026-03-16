@@ -53,12 +53,9 @@ def echo_density_profile(h: Tensor, sr: int, win_duration: float = 0.02, differe
     """
     Echo Density Profile (EDP) — batched implementation via unfold.
 
-    Reference (original):
+    Reference:
         J. S. Abel & P. Huang, "A Simple, Robust Measure of Reverberation Echo Density,"
         121st AES Convention, 2006.
-    Reference (differentiable SoftEDP):
-        A. I. Mezza et al., "Data-Driven Room Acoustic Modeling Via Differentiable FDNs,"
-        EURASIP JASMP, 2024. https://doi.org/10.1186/s13636-024-00371-5
 
     Args:
         h:              (T,) or (B, T)
@@ -99,9 +96,7 @@ def echo_density_profile(h: Tensor, sr: int, win_duration: float = 0.02, differe
 
     if differentiable:
         # SoftEDP: sigmoid approximation of the indicator function
-        indicator = torch.sigmoid(
-            kappa_t * (frames - sigma.unsqueeze(-1))
-        )                                                  # (B, n_frames, win_len)
+        indicator = torch.sigmoid(kappa_t * (frames - sigma.unsqueeze(-1))) # (B, n_frames, win_len)
     else:
         indicator = (frames > sigma.unsqueeze(-1)).float() # (B, n_frames, win_len)
 
