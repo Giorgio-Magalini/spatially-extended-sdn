@@ -1,9 +1,6 @@
 import math
-from os import close
-
 import torch
 from torch import Tensor, nn
-from torch.onnx.symbolic_opset11 import unsqueeze
 from tqdm import trange
 from junction import HouseholderScatteringJunction
 from integer_delay import IntegerDelayLines
