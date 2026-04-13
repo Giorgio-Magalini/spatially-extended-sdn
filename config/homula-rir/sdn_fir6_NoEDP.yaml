@@ -1,5 +1,5 @@
-save_dir: 'saved_models/sdn_fir6'
-fig_dir: 'figures/sdn_fir6'
+save_dir: 'saved_models/sdn_fir6_NoEDP'
+fig_dir: 'figures/sdn_fir6_NoEDP'
 
 sr: 24000
 c: 343.0
