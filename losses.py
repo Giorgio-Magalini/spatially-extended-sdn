@@ -40,7 +40,7 @@ class EDCLoss(nn.Module):
         edc_pred = energy_decay_curve(pred)  # (B, T) — natively batched
         edc_target = energy_decay_curve(target)  # (B, T)
 
-        return lp_error_fn(edc_pred, edc_target, self.power, normalize=True)
+        return lp_error_fn(edc_pred, edc_target, self.power, normalize=False)
 
 
 class MelEDRLogLoss(nn.Module):
@@ -64,7 +64,7 @@ class MelEDRLogLoss(nn.Module):
         edr_pred = mel_energy_decay_relief(pred, self.sr, return_db=True)  # (B, n_mels, L)
         edr_target = mel_energy_decay_relief(target, self.sr, return_db=True)  # (B, n_mels, L)
 
-        return lp_error_fn(edr_pred, edr_target, self.power, normalize=True)
+        return lp_error_fn(edr_pred, edr_target, self.power, normalize=False)
 
 
 class EDPLoss(nn.Module):

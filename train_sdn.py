@@ -82,6 +82,10 @@ def main(args):
         half = n_mics // 2
         train_indices = torch.arange(0, half, device=device)
         val_indices = torch.arange(half, n_mics, device=device)
+    elif split_mode == 'second_half':
+        half = n_mics // 2
+        train_indices = torch.arange(half, n_mics, device=device)
+        val_indices = torch.arange(0, half, device=device)
     else:
         raise ValueError("Invalid split_mode.")
 
@@ -103,7 +107,7 @@ def main(args):
     sdn_loss_functions = [  # (loss_name, loss_fn, lambda),
         ('EDC', losses.EDCLoss(), config['training']['lambda_edc']),
         ('EDR', losses.MelEDRLogLoss(sr=sr), config['training']['lambda_edr']),
-        # ('EDP', losses.EDPLoss(sr=sr), config['training']['lambda_edp']), removed: doesn't converge in training phase
+        ('EDP', losses.EDPLoss(sr=sr), config['training']['lambda_edp']),
     ]
 
     # Define the optimizer
@@ -136,9 +140,6 @@ def main(args):
             # Forward pass over the entire batch
             pred_rirs = sdn(x, src_pos, mic_batch)  # (B, T)
 
-            # Normalize each prediction to unit norm
-            pred_rirs = pred_rirs / (pred_rirs.norm(dim=-1, keepdim=True) + 1e-8)
-
             # Expand true_rir to match batch dimension
             true_rirs_batch = true_rirs[idx]  # (B, T)
 
@@ -165,7 +166,6 @@ def main(args):
 
             # Run validation in a single batched forward pass
             pred_rirs_val = sdn(x, src_pos, mic_positions[val_indices])  # (B_val, T)
-            pred_rirs_val = pred_rirs_val / (pred_rirs_val.norm(dim=-1, keepdim=True) + 1e-8)
             true_rir_val = true_rirs[val_indices]
 
             for (loss_name, loss_fn, lmbda) in sdn_loss_functions:

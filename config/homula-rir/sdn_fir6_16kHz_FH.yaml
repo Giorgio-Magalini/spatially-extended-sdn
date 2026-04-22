@@ -1,5 +1,5 @@
-save_dir: 'saved_models/sdn_fir6_16kHz_NoEDP'
-fig_dir: 'figures/sdn_fir6_16kHz_NoEDP'
+save_dir: 'saved_models/sdn_fir6_16kHz_FH'
+fig_dir: 'figures/sdn_fir6_16kHz_FH'
 
 sr: 16000
 c: 343.0
@@ -7,7 +7,7 @@ c: 343.0
 source_index: 0
 
 training:
-  split_mode: even
+  split_mode: first_half
   batch_size: 4          # SDN input dimension for each forward pass
   accumulation_factor: 8 # effective batch size = batch_size * accumulation_factor
   n_epochs: 300
