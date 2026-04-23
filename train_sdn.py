@@ -10,7 +10,7 @@ import losses
 from calibration import load_and_calibration_pipeline
 
 
-SPLIT_MODE_CHOICES = ['even', 'first_half']
+SPLIT_MODE_CHOICES = ['even', 'first_half', 'second_half']
 
 def main(args):
     # Set seeds for reproducibility
