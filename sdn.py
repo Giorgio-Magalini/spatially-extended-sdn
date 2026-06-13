@@ -101,7 +101,7 @@ class SDN(nn.Module):
             dist_nodes_mic_list.append(dnm)
             dist_src_mic_list.append(dsm)
 
-        # Convert to tensors — all carry a leading batch dimension
+        # Convert to tensors
         dist_src_nodes = torch.tensor(dist_src_nodes_list, **self.factory_kwargs)  # (B, N)
         dist_nodes = torch.tensor(dist_nodes_list, **self.factory_kwargs)  # (B, N*(N-1))
         dist_nodes_mic = torch.tensor(dist_nodes_mic_list, **self.factory_kwargs)  # (B, N)
@@ -112,7 +112,7 @@ class SDN(nn.Module):
         mic_gains = 1 / (1 + dist_nodes_mic / dist_src_nodes).unsqueeze(-1)    # (B, N)
         direct_gain  = 1 / dist_src_mic                                        # (B, 1)
 
-        # Compute delays (in samples) from distances - use integer delays
+        # Compute delays (in samples) from distances
         delay_src_nodes = torch.round(dist_src_nodes / self.G).long()  # (N,)
         delay_nodes     = torch.round(dist_nodes     / self.G).long()  # (n_lines,)
         delay_nodes_mic = torch.round(dist_nodes_mic / self.G).long()  # (B, N)
