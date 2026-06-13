@@ -51,7 +51,7 @@ class SDN(nn.Module):
         # Initialize permutation matrix P
         self.permutation_matrix = torch.zeros(self.n_lines, self.n_lines, **self.factory_kwargs)
         for i in range(self.n_lines):
-            f = (6 * (i + 1) - (i % self.N) - 1) % self.n_lines + 1
+            f = (self.N * (i + 1) - (i % self.N) - 1) % self.n_lines + 1
             self.permutation_matrix[i, f - 1] = 1
 
         # Initialize pressure extraction weights
@@ -121,8 +121,8 @@ class SDN(nn.Module):
         # Compute per-object maximum delays (+ 1 to account for zero-based indexing)
         max_delay_src_mic = int(delay_src_mic.max().item()) + 1
         max_delay_src_nodes = int(delay_src_nodes.max().item()) + 1
-        max_delay_nodes = int(delay_nodes.max().item()) + 1
-        max_delay_nodes_mic = int(delay_nodes_mic.max().item()) + 1
+        max_delay_nodes = int(delay_nodes.max().item()) + self.fir_order + 1
+        max_delay_nodes_mic = int(delay_nodes_mic.max().item()) + self.fir_order + 1
 
         # Instantiate batch-aware integer delay lines with tight buffer lengths
         src_to_mic = IntegerDelayLines(1, max_delay_src_mic, batch_size=B, **self.factory_kwargs)

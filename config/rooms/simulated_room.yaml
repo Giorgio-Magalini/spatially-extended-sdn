@@ -1,47 +1,52 @@
 room_dim:
-- 5
-- 8
+- 4
+- 7
 - 3
 
 src_pos:
-- 2.5
+- 1.5
 - 1
 - 1.75
 
 mic_pos:
-- 2.5
-- 2.5
+- 1.5
+- 3
 - 1.75
 
-mic_array_grid: [20, 20]  # [rows, cols]
+mic_array_grid: [8, 8]  # [rows, cols]
 
 mic_spacing: 0.05  # meters
 
-mic_pos_path: "data/simulated/pos_square_20x20.csv"
+mic_pos_path: "data/simulated/pos_array.csv"
 
 rir_path: "data/simulated/rir-simulated.wav"
 
 materials:
-  floor:   ["linoleum_on_concrete",    0.1]
-  ceiling: ["ceiling_fissured_tile",   0.2]
-  north:   ["plasterboard",            0.1]
-  south:   ["plasterboard",            0.1]
-  east:    ["curtains_densely_woven",  0.5]
-  west:    ["plasterboard",            0.1]
+#  floor:    [ "chairs_unoccupied_plastic",  "classroom_tables" ]
+#  ceiling:  [ "ceiling_plasterboard",       0.4 ]
+#  north:    [ "wooden_lining",              0.6 ]
+#  south:    [ "plasterboard",               0.6 ]
+#  east:     [ "curtains_densely_woven",     0.7 ]
+#  west:     [ "plasterboard",               0.8 ]
+  floor: [ "chairs_unoccupied_plastic",  0.]
+  ceiling: [ "ceiling_plasterboard", 0.]
+  north: [ "studio_curtains", 0.]
+  south: [ "perforated_veneered_chipboard", 0.]
+  east: [ "fibre_absorber_1", 0.]
+  west: [ "acoustical_plaster_25mm", 0.]
 
 ism:
-  max_order:    50
-  use_rand_ism: false
-  max_rand_disp: 0.05
+  max_order:   250
+  use_rand_ism: true
+  max_rand_disp: 0.09
 
 ray_tracing:
-  enabled:         true
-  n_rays:          10000
-  receiver_radius: 0.1
-  energy_thres:    1.0e-7
+  enabled:         false
+  # n_rays:          10000
+  receiver_radius: 0.05
+  # energy_thres:    1.0e-7
 
 environment:
   fs:           16000
-  humidity:     0.0   # %
-  air_absorption: false
-  sigma2_awgn:  null   # estimated from real RIRs at runtime
+  # humidity:     0.0   # %
+  air_absorption: true

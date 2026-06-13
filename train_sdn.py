@@ -17,6 +17,7 @@ from calibration import load_and_calibration_pipeline
 SPLIT_MODE_CHOICES = [
     'even', 'first_half', 'second_half',
     'center_line_x', 'center_line_y', 'concentric_square',
+    'checkerboard', 'border_train',
 ]
 
 def main(args):
@@ -96,7 +97,8 @@ def main(args):
         raise ValueError("Number of microphones must be even for this split.")
 
     train_indices = numpy.arange(n_mics)  # default fallback
-    if split_mode in ('center_line_x', 'center_line_y', 'concentric_square'):
+    if split_mode in ('center_line_x', 'center_line_y', 'concentric_square',
+                      'checkerboard', 'border_train'):
         if dataset_type != 'simulated':
             raise ValueError(f"split_mode '{split_mode}' requires dataset_type 'simulated'.")
 
@@ -127,6 +129,25 @@ def main(args):
                 device=device
             )
 
+        elif split_mode == 'checkerboard':
+            # (r + c) % 2 == 0 → train, else → val (perfect 50/50 interleave)
+            train_indices = torch.tensor(
+                [r * n_cols + c
+                 for r in range(n_rows) for c in range(n_cols)
+                 if (r + c) % 2 == 0],
+                device=device
+            )
+
+        elif split_mode == 'border_train':
+            # Outer border of given thickness → train, inner square → val
+            t = config['training'].get('border_thickness', 2)
+            train_indices = torch.tensor(
+                [r * n_cols + c
+                 for r in range(n_rows) for c in range(n_cols)
+                 if r < t or r >= n_rows - t or c < t or c >= n_cols - t],
+                device=device
+            )
+
         train_mask = torch.zeros(n_mics, dtype=torch.bool, device=device)
         train_mask[train_indices] = True
         val_indices = torch.arange(n_mics, device=device)[~train_mask]
@@ -144,6 +165,13 @@ def main(args):
         val_indices = torch.arange(0, half, device=device)
     else:
         raise ValueError("Invalid split_mode.")
+
+    # Single-mic baseline: restrict training to one microphone drawn from train_indices.
+    # val_indices is unaffected — evaluation is identical to the full-dataset run.
+    single_mic_baseline = config['training'].get('single_mic_baseline', False)
+    if single_mic_baseline:
+        local_idx = config['training'].get('single_mic_local_idx', 0)
+        train_indices = train_indices[local_idx: local_idx + 1]
 
     val_batch_size = math.ceil(len(val_indices) / val_accumulation_factor)
 
