@@ -3,6 +3,7 @@ import torch
 from torch import Tensor, nn
 from tqdm import trange
 from junction import HouseholderScatteringJunction
+from cayley_junction import CayleyScatteringJunctions, GeomMode
 from integer_delay import IntegerDelayLines
 from position_utils import get_distances
 
@@ -15,6 +16,8 @@ class SDN(nn.Module):
                  sr: int = 16000,
                  c: float = 343.,
                  junction_type='householder',
+                 geom_mode: GeomMode = 'dist_full',
+                 junction_hidden_dims: list[int] = None,
                  fir_order: int = 7,
                  alpha: float = 0.02,
                  device=None,
@@ -31,6 +34,8 @@ class SDN(nn.Module):
         self.n_lines = self.N * self.Nm1
         self.fir_order = fir_order
         self.G = c / sr  # Helper constant
+        self.junction_type = junction_type
+        self.geom_mode = geom_mode
 
         self.room_dim = room_dim
 
@@ -45,8 +50,17 @@ class SDN(nn.Module):
             self.junctions = nn.ModuleList(
                 [HouseholderScatteringJunction(self.N, j, **self.factory_kwargs) for j in range(self.N)]
             )
+        elif junction_type == 'cayley':
+            hidden_dims = junction_hidden_dims if junction_hidden_dims is not None else [64, 128, 64]
+            self.junctions = CayleyScatteringJunctions(
+                mat_size=self.Nm1,
+                n_junctions=self.N,
+                hidden_dims=hidden_dims,
+                geom_mode=geom_mode,
+                **self.factory_kwargs,
+            )
         else:
-            raise ValueError(f'Junction type {junction_type} not recognized.')
+            raise ValueError(f'Junction type {junction_type!r} not recognized. Must be "householder" or "cayley".')
 
         # Initialize permutation matrix P
         self.permutation_matrix = torch.zeros(self.n_lines, self.n_lines, **self.factory_kwargs)
@@ -134,6 +148,16 @@ class SDN(nn.Module):
         junction_filters = torch.sigmoid(self.junction_filters) if self.fir_order == 0 else self.junction_filters
         junction_filters_nodes = junction_filters.repeat_interleave(self.Nm1, dim=0)
 
+        # ========= Pre-loop: build geometric input and compute scattering matrices (Cayley only) =========
+        if self.junction_type == 'cayley':
+            if self.geom_mode == 'mic_pos':
+                geom_input = mic_pos                                                                   # (B, 3)
+            elif self.geom_mode == 'dist_nodes_mic':
+                geom_input = dist_nodes_mic                                                            # (B, N)
+            else:  # 'dist_full'
+                geom_input = torch.cat([dist_src_nodes, dist_nodes_mic, dist_src_mic], dim=-1)        # (B, 2N+1)
+            Q = self.junctions.get_matrices(geom_input)   # (B, J, M, M) — MLP runs once per forward
+
         # ========= Main simulation loop =========
         y = torch.zeros(B, T, **self.factory_kwargs)
         pp = torch.zeros(B, self.n_lines, 1, **self.factory_kwargs)
@@ -144,7 +168,10 @@ class SDN(nn.Module):
             pp += src_to_nodes(source_gains * xk, delay_src_nodes).repeat_interleave(self.Nm1, dim=1)
 
             # Compute the global reflected (outgoing) waves after local scattering
-            pm = sum([junction(pp) for junction in self.junctions])
+            if self.junction_type == 'cayley':
+                pm = self.junctions(pp, Q)
+            else:
+                pm = sum([junction(pp) for junction in self.junctions])
 
             # Compute the microphone signal (contribution from the nodes)
             y[:, k] = nodes_to_mic(

@@ -180,13 +180,16 @@ def main(args):
     x[0] = 1.
 
     # Instantiate the SDN model
+    sdn_cfg = config['sdn']
     sdn = SDN(room_dim=room['room_dim'],
-              N=config['sdn']['N'],
+              N=sdn_cfg['N'],
               sr=sr,
               c=c,
-              junction_type=config['sdn']['junction_type'],
-              fir_order=config['sdn']['fir_order'],
-              alpha=config['sdn']['alpha'],
+              junction_type=sdn_cfg['junction_type'],
+              geom_mode=sdn_cfg.get('geom_mode', 'dist_full'),
+              junction_hidden_dims=sdn_cfg.get('junction_hidden_dims', None),
+              fir_order=sdn_cfg['fir_order'],
+              alpha=sdn_cfg['alpha'],
               **factory_kwargs)
 
     # Define (weighted) losses
