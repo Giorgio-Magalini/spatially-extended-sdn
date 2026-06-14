@@ -26,6 +26,7 @@ sdn:
   alpha: 0.02
 
   junction_type: 'cayley'
+  use_mlp: true
 
   # Geometric input mode for the Cayley MLP junction.
   # Options:
@@ -34,8 +35,4 @@ sdn:
   #   'dist_full'      — all distances concatenated     (input_dim = 2N+1,   ~1316 params total)
   geom_mode: 'dist_full'
 
-  # Hidden layer sizes of the MLP.
-  # [16] → ~1316 total trainable parameters (recommended minimum).
-  # [8]  → ~724 total parameters (very lean; output layer becomes near-linear).
-  # [24] → ~1908 total parameters (more expressive, still compact).
-  junction_hidden_dims: [16]
+  junction_hidden_dims: [16] # Hidden layer sizes of the MLP.
