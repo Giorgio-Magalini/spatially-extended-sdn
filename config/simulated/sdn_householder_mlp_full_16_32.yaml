@@ -15,7 +15,7 @@ training:
   accumulation_factor: 8
   val_accumulation_factor: 1
   n_epochs: 300
-  learning_rate: 0.001
+  learning_rate: 0.01
   lambda_edc: 0.5
   lambda_edp: 1.0
   lambda_edr: 1.0
