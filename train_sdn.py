@@ -186,6 +186,7 @@ def main(args):
               sr=sr,
               c=c,
               junction_type=sdn_cfg['junction_type'],
+              use_mlp=sdn_cfg.get('use_mlp', False),
               geom_mode=sdn_cfg.get('geom_mode', 'dist_full'),
               junction_hidden_dims=sdn_cfg.get('junction_hidden_dims', None),
               fir_order=sdn_cfg['fir_order'],
@@ -221,7 +222,7 @@ def main(args):
         # Reset gradients
         optimizer.zero_grad()
         # Loop over microphone batches
-        for step, i in enumerate(trange(
+        for step, i in enumerate(pbar := trange(
             0, len(train_indices), batch_size,
             desc=f"Epoch {epoch + 1} batches", leave=False
             )):
@@ -230,11 +231,13 @@ def main(args):
             mic_batch = mic_positions[idx]  # (B, 3)
 
             # Forward pass over the entire batch
+            pbar.set_postfix(status="forward pass")
             pred_rirs = sdn(x, src_pos, mic_batch)  # (B, T)
 
             # Expand true_rir to match batch dimension
             true_rirs_batch = true_rirs[idx]  # (B, T)
 
+            pbar.set_postfix(status="computing losses")
             batch_loss = 0.0
             for (loss_name, loss_fn, lmbda) in sdn_loss_functions:
                 loss_term = loss_fn(pred_rirs, true_rirs_batch)
@@ -243,8 +246,11 @@ def main(args):
 
             n_loss_terms += 1
 
+            pbar.set_postfix(status="backpropagating")
             # Backpropagate and update
             batch_loss.backward()
+
+            pbar.set_postfix(status="accumulating")
 
             is_last_batch = (i + batch_size) >= len(train_indices)
             if (step + 1) % accumulation_factor == 0 or is_last_batch:
@@ -257,8 +263,11 @@ def main(args):
             val_loss_terms = {k[0]: 0.0 for k in sdn_loss_functions}
             n_val_batches = 0
 
-            for j in range(0, len(val_indices), val_batch_size):
-                val_idx = val_indices[j:j + val_batch_size]
+            for j, val_j in enumerate(trange(
+                0, len(val_indices), val_batch_size,
+                desc=f"Epoch {epoch + 1} validation", leave=False
+            )):
+                val_idx = val_indices[val_j:val_j + val_batch_size]
                 pred_rirs_val = sdn(x, src_pos, mic_positions[val_idx])
                 true_rir_val = true_rirs[val_idx]
 

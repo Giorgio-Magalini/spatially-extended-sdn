@@ -1,5 +1,5 @@
-save_dir: 'saved_models/sdn_fir6_16kHz'
-fig_dir: 'figures/sdn_fir6_16kHz'
+save_dir: 'saved_models/sdn_fir6_16kHz_even'
+fig_dir: 'figures/sdn_fir6_16kHz_even'
 
 sr: 16000
 c: 343.0
