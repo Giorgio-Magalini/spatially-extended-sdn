@@ -60,7 +60,8 @@ def main(args):
     batch_size = config['training']['batch_size']
     accumulation_factor = config['training']['accumulation_factor']
     dataset_type = config.get('dataset_type', 'real')
-    val_accumulation_factor = config['training']['val_accumulation_factor']
+    test_accumulation_factor = config['training'].get(
+        'test_accumulation_factor', config['training'].get('val_accumulation_factor', 1))
 
     # Factory kwargs used to move tensors/models to device and dtype consistently
     factory_kwargs = {"device": device, "dtype": dtype}
@@ -91,7 +92,7 @@ def main(args):
     mic_positions = mic_positions.to(**factory_kwargs)
     src_pos = src_pos.to(**factory_kwargs)
 
-    # Build train/validation microphone index split
+    # Build train/test microphone index split
     n_mics = mic_positions.shape[0]
     if n_mics % 2 != 0:
         raise ValueError("Number of microphones must be even for this split.")
@@ -169,30 +170,30 @@ def main(args):
 
         train_mask = torch.zeros(n_mics, dtype=torch.bool, device=device)
         train_mask[train_indices] = True
-        val_indices = torch.arange(n_mics, device=device)[~train_mask]
+        test_indices = torch.arange(n_mics, device=device)[~train_mask]
 
     elif split_mode == 'even':
         train_indices = torch.arange(0, n_mics, 2, device=device)
-        val_indices = torch.arange(1, n_mics, 2, device=device)
+        test_indices = torch.arange(1, n_mics, 2, device=device)
     elif split_mode == 'first_half':
         half = n_mics // 2
         train_indices = torch.arange(0, half, device=device)
-        val_indices = torch.arange(half, n_mics, device=device)
+        test_indices = torch.arange(half, n_mics, device=device)
     elif split_mode == 'second_half':
         half = n_mics // 2
         train_indices = torch.arange(half, n_mics, device=device)
-        val_indices = torch.arange(0, half, device=device)
+        test_indices = torch.arange(0, half, device=device)
     else:
         raise ValueError("Invalid split_mode.")
 
     # Single-mic baseline: restrict training to one microphone drawn from train_indices.
-    # val_indices is unaffected — evaluation is identical to the full-dataset run.
+    # The held-out indices (test_indices) form the TEST set.
     single_mic_baseline = config['training'].get('single_mic_baseline', False)
     if single_mic_baseline:
         local_idx = config['training'].get('single_mic_local_idx', 0)
         train_indices = train_indices[local_idx: local_idx + 1]
 
-    val_batch_size = math.ceil(len(val_indices) / val_accumulation_factor)
+    test_batch_size = math.ceil(len(test_indices) / test_accumulation_factor)
 
     # Instantiate the input unit pulse
     x = torch.zeros(true_rirs.shape[-1]).to(**factory_kwargs)
@@ -222,9 +223,11 @@ def main(args):
     # Define the optimizer
     optimizer = torch.optim.Adam(sdn.parameters(), lr=config['training']['learning_rate'])
 
-    # Instantiate the data structure for storing loss values
-    loss_history     = {k[0]: []            for k in sdn_loss_functions}
-    val_loss_history = {f"val_{k[0]}": []   for k in sdn_loss_functions}
+    # Loss histories: train losses and test losses (held-out microphones).
+    # NOTE: the best epoch is selected on the TRAIN-set losses; the test losses
+    # are stored for reporting only, not for model selection.
+    loss_history      = {k[0]: []            for k in sdn_loss_functions}
+    test_loss_history = {f"test_{k[0]}": []  for k in sdn_loss_functions}
 
     # Start training
     for epoch in trange(n_epochs, desc="Epochs", leave=False):
@@ -277,39 +280,43 @@ def main(args):
                 optimizer.step()
                 optimizer.zero_grad()
 
-        # Validation phase (no gradient tracking)
+        # Test phase: evaluate the held-out microphones (no gradient tracking).
+        # Stored for reporting only — NOT used to select the best epoch.
         sdn.eval()
         with torch.no_grad():
-            val_loss_terms = {k[0]: 0.0 for k in sdn_loss_functions}
-            n_val_batches = 0
+            test_loss_terms = {k[0]: 0.0 for k in sdn_loss_functions}
+            n_test_batches = 0
 
-            for j, val_j in enumerate(trange(
-                0, len(val_indices), val_batch_size,
-                desc=f"Epoch {epoch + 1} validation", leave=False
+            for j, test_j in enumerate(trange(
+                0, len(test_indices), test_batch_size,
+                desc=f"Epoch {epoch + 1} test", leave=False
             )):
-                val_idx = val_indices[val_j:val_j + val_batch_size]
-                pred_rirs_val = sdn(x, src_pos, mic_positions[val_idx])
-                true_rir_val = true_rirs[val_idx]
+                test_idx = test_indices[test_j:test_j + test_batch_size]
+                pred_rirs_test = sdn(x, src_pos, mic_positions[test_idx])
+                true_rir_test = true_rirs[test_idx]
 
                 for (loss_name, loss_fn, _) in sdn_loss_functions:
-                    val_loss_terms[loss_name] += loss_fn(pred_rirs_val, true_rir_val).item()
-                n_val_batches += 1
+                    test_loss_terms[loss_name] += loss_fn(pred_rirs_test, true_rir_test).item()
+                n_test_batches += 1
 
-            val_loss_terms = {k: v / n_val_batches for k, v in val_loss_terms.items()}
-            val_str = "  ".join(f"{k}: {v:.4e}" for k, v in val_loss_terms.items())
-            tqdm_.write(f"[Epoch {epoch + 1:>4}]  {val_str}")
+            test_loss_terms = {k: v / n_test_batches for k, v in test_loss_terms.items()}
 
-        # Store epoch-averaged loss values (train and val)
+        # Store epoch-averaged train and test loss values
         for k in epoch_loss_terms:
             loss_history[k].append(epoch_loss_terms[k] / n_loss_terms)
-        for k, v in val_loss_terms.items():
-            val_loss_history[f"val_{k}"].append(v)
+        for k, v in test_loss_terms.items():
+            test_loss_history[f"test_{k}"].append(v)
+
+        # Console feedback: per-epoch train and test losses
+        train_str = "  ".join(f"{k}: {loss_history[k][-1]:.4e}" for k in loss_history)
+        test_str  = "  ".join(f"test_{k}: {v:.4e}" for k, v in test_loss_terms.items())
+        tqdm_.write(f"[Epoch {epoch + 1:>4}]  {train_str}  |  {test_str}")
 
         # Save model checkpoint at the end of the epoch
         torch.save(sdn.state_dict(), save_dir / f"sdn_epoch_{epoch}.pth")
 
-        # Save loss history to disk for later analysis
-        combined_history = {**loss_history, **val_loss_history}
+        # Save loss history (train + test) to disk for later analysis
+        combined_history = {**loss_history, **test_loss_history}
         with open(save_dir / "loss_history.pickle", "wb") as f:
             pickle.dump(combined_history, f, protocol=pickle.HIGHEST_PROTOCOL)
 

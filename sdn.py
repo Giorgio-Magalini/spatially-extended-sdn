@@ -170,7 +170,7 @@ class SDN(nn.Module):
             elif self.geom_mode == 'dist_nodes_mic':
                 geom_input = dist_nodes_mic                                                            # (B, N)
             else:  # 'dist_full'
-                geom_input = torch.cat([dist_src_nodes, dist_nodes_mic, dist_src_mic], dim=-1)        # (B, 2N+1)
+                geom_input = torch.cat([dist_src_nodes, dist_nodes_mic, dist_src_mic, dist_nodes], dim=-1)        # (B, 2N+1)
             # Normalize geometric features by the room diagonal so MLP inputs are ~O(1)
             geom_input = geom_input / self.room_diag
             Q = self.junctions.get_matrices(geom_input)   # (B, J, M, M) — MLP runs once per forward
