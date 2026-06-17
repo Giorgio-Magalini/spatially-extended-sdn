@@ -1,5 +1,5 @@
-save_dir: 'saved_models/sdn_cayley_16kHz_lr0_01'
-fig_dir:  'figures/sdn_cayley_16kHz_lr0_01'
+save_dir: 'saved_models/sdn_cayley_16kHz'
+fig_dir:  'figures/sdn_cayley_16kHz'
 
 sr: 16000
 c: 343.0

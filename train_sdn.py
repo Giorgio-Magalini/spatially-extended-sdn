@@ -17,7 +17,7 @@ from calibration import load_and_calibration_pipeline
 SPLIT_MODE_CHOICES = [
     'even', 'first_half', 'second_half',
     'center_line_x', 'center_line_y', 'concentric_square',
-    'checkerboard', 'border_train',
+    'checkerboard', 'border_train', 'corners', 'center_mics',
 ]
 
 def main(args):
@@ -98,7 +98,7 @@ def main(args):
 
     train_indices = numpy.arange(n_mics)  # default fallback
     if split_mode in ('center_line_x', 'center_line_y', 'concentric_square',
-                      'checkerboard', 'border_train'):
+                      'checkerboard', 'border_train', 'corners', 'center_mics'):
         if dataset_type != 'simulated':
             raise ValueError(f"split_mode '{split_mode}' requires dataset_type 'simulated'.")
 
@@ -145,6 +145,25 @@ def main(args):
                 [r * n_cols + c
                  for r in range(n_rows) for c in range(n_cols)
                  if r < t or r >= n_rows - t or c < t or c >= n_cols - t],
+                device=device
+            )
+
+        elif split_mode == 'corners':
+            # The four corner mics of the grid → train, everything else → val
+            train_indices = torch.tensor(
+                [0,                                  # top-left      (0, 0)
+                 n_cols - 1,                         # top-right     (0, cols-1)
+                 (n_rows - 1) * n_cols,              # bottom-left   (rows-1, 0)
+                 (n_rows - 1) * n_cols + (n_cols - 1)],  # bottom-right (rows-1, cols-1)
+                device=device
+            )
+
+        elif split_mode == 'center_mics':
+            # The central 2x2 block of mics → train, everything else → val
+            r0, c0 = n_rows // 2 - 1, n_cols // 2 - 1
+            train_indices = torch.tensor(
+                [(r0 + dr) * n_cols + (c0 + dc)
+                 for dr in range(2) for dc in range(2)],
                 device=device
             )
 
@@ -204,7 +223,8 @@ def main(args):
     optimizer = torch.optim.Adam(sdn.parameters(), lr=config['training']['learning_rate'])
 
     # Instantiate the data structure for storing loss values
-    loss_history = {k[0]: [] for k in sdn_loss_functions}
+    loss_history     = {k[0]: []            for k in sdn_loss_functions}
+    val_loss_history = {f"val_{k[0]}": []   for k in sdn_loss_functions}
 
     # Start training
     for epoch in trange(n_epochs, desc="Epochs", leave=False):
@@ -279,16 +299,19 @@ def main(args):
             val_str = "  ".join(f"{k}: {v:.4e}" for k, v in val_loss_terms.items())
             tqdm_.write(f"[Epoch {epoch + 1:>4}]  {val_str}")
 
-        # Store epoch-averaged loss values
+        # Store epoch-averaged loss values (train and val)
         for k in epoch_loss_terms:
             loss_history[k].append(epoch_loss_terms[k] / n_loss_terms)
+        for k, v in val_loss_terms.items():
+            val_loss_history[f"val_{k}"].append(v)
 
         # Save model checkpoint at the end of the epoch
         torch.save(sdn.state_dict(), save_dir / f"sdn_epoch_{epoch}.pth")
 
         # Save loss history to disk for later analysis
+        combined_history = {**loss_history, **val_loss_history}
         with open(save_dir / "loss_history.pickle", "wb") as f:
-            pickle.dump(loss_history, f, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(combined_history, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Save model checkpoint for this epoch
     torch.save(sdn, save_dir.joinpath(f'sdn_epoch_{n_epochs}.pth'))

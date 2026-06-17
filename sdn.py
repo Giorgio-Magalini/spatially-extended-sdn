@@ -40,6 +40,10 @@ class SDN(nn.Module):
         self.geom_mode = geom_mode
 
         self.room_dim = room_dim
+        # Characteristic length used to normalize the geometric MLP inputs: the room's
+        # main diagonal (in meters). Dividing distances/positions by this keeps the MLP
+        # inputs in a ~[0, 1] range, which avoids Tanh saturation and stabilizes training.
+        self.room_diag = math.sqrt(sum(float(d) ** 2 for d in room_dim))
 
         # Initialize junction filters (inverse sigmoid reparameterization for the scalar case)
         init_beta = -math.log((1 / math.sqrt(1 - alpha)) - 1) if self.fir_order == 0 else math.sqrt(1 - alpha)
@@ -167,6 +171,8 @@ class SDN(nn.Module):
                 geom_input = dist_nodes_mic                                                            # (B, N)
             else:  # 'dist_full'
                 geom_input = torch.cat([dist_src_nodes, dist_nodes_mic, dist_src_mic], dim=-1)        # (B, 2N+1)
+            # Normalize geometric features by the room diagonal so MLP inputs are ~O(1)
+            geom_input = geom_input / self.room_diag
             Q = self.junctions.get_matrices(geom_input)   # (B, J, M, M) — MLP runs once per forward
 
         # ========= Main simulation loop =========
