@@ -8,7 +8,7 @@ import numpy
 from tqdm import trange, tqdm as tqdm_
 import math
 
-from utils import seed_everything, load_homula_rirs, load_positions
+from utils import seed_everything, load_positions, load_homula_rirs
 from sdn import SDN
 import losses
 from calibration import load_and_calibration_pipeline
@@ -17,7 +17,7 @@ from calibration import load_and_calibration_pipeline
 SPLIT_MODE_CHOICES = [
     'even', 'first_half', 'second_half',
     'center_line_x', 'center_line_y', 'concentric_square',
-    'checkerboard', 'border_train', 'corners', 'center_mics',
+    'checkerboard', 'checkerboard_sparse', 'border_train', 'corners', 'center_mics',
 ]
 
 def main(args):
@@ -67,7 +67,8 @@ def main(args):
     factory_kwargs = {"device": device, "dtype": dtype}
 
     if dataset_type == 'simulated':
-        rirs = load_homula_rirs([room['rir_path']], sr=sr)  # (1, n_mics, T)
+        rirs = load_homula_rirs([room['rir_path']], sr=sr, trim=True)  # (1, n_mics, T)
+        print(rirs.shape)
         true_rirs = rirs[0]
         mic_positions = load_positions(room['mic_pos_path'])
         src_pos = torch.tensor(room['src_pos'])
@@ -99,7 +100,7 @@ def main(args):
 
     train_indices = numpy.arange(n_mics)  # default fallback
     if split_mode in ('center_line_x', 'center_line_y', 'concentric_square',
-                      'checkerboard', 'border_train', 'corners', 'center_mics'):
+                      'checkerboard', 'checkerboard_sparse', 'border_train', 'corners', 'center_mics'):
         if dataset_type != 'simulated':
             raise ValueError(f"split_mode '{split_mode}' requires dataset_type 'simulated'.")
 
@@ -136,6 +137,18 @@ def main(args):
                 [r * n_cols + c
                  for r in range(n_rows) for c in range(n_cols)
                  if (r + c) % 2 == 0],
+                device=device
+            )
+
+        elif split_mode == 'checkerboard_sparse':
+            # Rarefied, staggered checkerboard with period 4 (half the density of
+            # 'checkerboard' → ~25% train / ~75% test). Each row keeps one mic every
+            # 4 columns, and the starting column alternates per row: even rows start
+            # at column 0, odd rows at column 2 → c % 4 == (r % 2) * 2.
+            train_indices = torch.tensor(
+                [r * n_cols + c
+                 for r in range(n_rows) for c in range(n_cols)
+                 if c % 4 == (r % 2) * 2],
                 device=device
             )
 
@@ -193,7 +206,9 @@ def main(args):
         local_idx = config['training'].get('single_mic_local_idx', 0)
         train_indices = train_indices[local_idx: local_idx + 1]
 
-    test_batch_size = math.ceil(len(test_indices) / test_accumulation_factor)
+    # Evaluate the test set in chunks no larger than the training batch, so the test
+    # phase never allocates a bigger activation footprint (VRAM) than training.
+    test_batch_size = config['training'].get('test_batch_size', batch_size)
 
     # Instantiate the input unit pulse
     x = torch.zeros(true_rirs.shape[-1]).to(**factory_kwargs)
@@ -231,7 +246,29 @@ def main(args):
 
     # Start training
     for epoch in trange(n_epochs, desc="Epochs", leave=False):
-        # print(f"Epoch {epoch + 1}/{n_epochs}")
+        # Test phase FIRST: evaluate the held-out microphones at the epoch's
+        # starting weights, i.e. BEFORE any backpropagation/update. This aligns
+        # the train and test losses to the same model state. Reporting only —
+        # NOT used to select the best epoch.
+        sdn.eval()
+        with torch.no_grad():
+            test_loss_terms = {k[0]: 0.0 for k in sdn_loss_functions}
+            n_test_mics = 0
+
+            for j, test_j in enumerate(trange(
+                0, len(test_indices), test_batch_size,
+                desc=f"Epoch {epoch + 1} test", leave=False
+            )):
+                test_idx = test_indices[test_j:test_j + test_batch_size]
+                pred_rirs_test = sdn(x, src_pos, mic_positions[test_idx])
+                true_rir_test = true_rirs[test_idx]
+
+                # Weight each chunk by its number of mics so unequal chunks average correctly
+                for (loss_name, loss_fn, _) in sdn_loss_functions:
+                    test_loss_terms[loss_name] += loss_fn(pred_rirs_test, true_rir_test).item() * len(test_idx)
+                n_test_mics += len(test_idx)
+
+            test_loss_terms = {k: v / n_test_mics for k, v in test_loss_terms.items()}
 
         sdn.train()
 
@@ -279,27 +316,6 @@ def main(args):
             if (step + 1) % accumulation_factor == 0 or is_last_batch:
                 optimizer.step()
                 optimizer.zero_grad()
-
-        # Test phase: evaluate the held-out microphones (no gradient tracking).
-        # Stored for reporting only — NOT used to select the best epoch.
-        sdn.eval()
-        with torch.no_grad():
-            test_loss_terms = {k[0]: 0.0 for k in sdn_loss_functions}
-            n_test_batches = 0
-
-            for j, test_j in enumerate(trange(
-                0, len(test_indices), test_batch_size,
-                desc=f"Epoch {epoch + 1} test", leave=False
-            )):
-                test_idx = test_indices[test_j:test_j + test_batch_size]
-                pred_rirs_test = sdn(x, src_pos, mic_positions[test_idx])
-                true_rir_test = true_rirs[test_idx]
-
-                for (loss_name, loss_fn, _) in sdn_loss_functions:
-                    test_loss_terms[loss_name] += loss_fn(pred_rirs_test, true_rir_test).item()
-                n_test_batches += 1
-
-            test_loss_terms = {k: v / n_test_batches for k, v in test_loss_terms.items()}
 
         # Store epoch-averaged train and test loss values
         for k in epoch_loss_terms:

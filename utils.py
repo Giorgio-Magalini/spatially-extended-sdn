@@ -101,6 +101,59 @@ def load_homula_rirs(rirs_paths, sr: int, trim: bool = False, flip: bool = False
 
     return stacked_rirs
 
+
+def load_rirs(rirs_paths, sr: int, trim_factor: float, flip: bool = False):
+    """
+    Load and preprocess multichannel RIRs (one WAV per source), then crop them to a
+    fraction of their length.
+
+    Pipeline:
+        1. Read, optionally flip channel order, and resample each source to `sr`.
+        2. Equalize all sources to a common length (truncate to the shortest), so every
+           returned RIR has the same number of samples.
+        3. Apply a fractional trim AFTER equalization: keep the first
+           `trim_factor` portion of that common length.
+
+    Parameters
+    ----------
+    rirs_paths  : list or tuple of str
+        Paths to multichannel RIR WAV files, one per source.
+    sr          : int
+        Target sampling rate.
+    trim_factor : float
+        Fraction in (0, 1] of the length-equalized RIR to keep.
+    flip        : bool
+        If True, reverse the channel order to match the CSV mic ordering.
+
+    Returns
+    -------
+    torch.Tensor of shape (num_sources, num_channels, num_samples)
+    """
+    if not isinstance(rirs_paths, (list, tuple)):
+        raise ValueError("rirs_paths must be a list or tuple of file paths")
+    if not (0.0 < trim_factor <= 1.0):
+        raise ValueError(f"trim_factor must be in (0, 1], got {trim_factor}")
+
+    processed_rirs = []
+    for rir_path in rirs_paths:
+        orig_sr, ula_rir = wavfile.read(rir_path)
+        rirs = torch.tensor(ula_rir.T)
+        if flip:
+            rirs = torch.flip(rirs, dims=[0])
+        rirs = F.resample(rirs, orig_sr, sr)
+        processed_rirs.append(rirs)
+
+    # Equalize all sources to the shortest length (same duration for all)
+    min_length = min(r.shape[1] for r in processed_rirs)
+    processed_rirs = [r[:, :min_length] for r in processed_rirs]
+
+    # Fractional trim applied AFTER equalization
+    keep = max(1, int(round(trim_factor * min_length)))
+    processed_rirs = [r[:, :keep] for r in processed_rirs]
+
+    return torch.stack(processed_rirs, dim=0)
+
+
 def load_positions(csv_path):
     """
     Load microphone positions for a ULA from a CSV file.
